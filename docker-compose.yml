@@ -1,0 +1,8 @@
+---
+services:
+  radiusportal:
+    image: radius-user-portal
+    build: .
+    ports:
+      - "8443:8443"
+    network_mode: bridge
