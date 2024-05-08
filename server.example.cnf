@@ -1,0 +1,22 @@
+[ req_distinguished_name ]
+# Update common name to match your host
+commonName = portal.example.com
+
+[ alt_names ]
+# Update IP.0 to match your host
+IP.0 = 192.168.1.100
+
+# No changes below this line
+DNS.0 = ${req_distinguished_name::commonName}
+
+[ req ]
+default_md = sha256
+prompt = no
+req_extensions = req_ext
+distinguished_name = req_distinguished_name
+
+[ req_ext ]
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+basicConstraints=critical,CA:false
+subjectAltName = @alt_names

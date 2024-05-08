@@ -1,0 +1,103 @@
+---
+- name: Provision portal
+  hosts: all
+  become: true
+  remote_user: admin
+
+  tasks:
+
+    - name: Git checkout
+      ansible.builtin.git:
+        repo: 'https://github.com/cubinet-code/radius-user-portal.git'
+        dest: /opt/radius-user-portal
+        version: main
+
+    - name: Install python3 and pip
+      ansible.builtin.package:
+        name:
+          - python3-pip
+        state: present
+
+    - name: Install virtualenv via pip
+      ansible.builtin.pip:
+        name:
+          - virtualenv
+          - ansible
+        executable: pip3
+
+    - name: Install python requirements
+      ansible.builtin.pip:
+        requirements: /opt/radius-user-portal/requirements.txt
+        virtualenv: /opt/radius-user-portal/venv
+        virtualenv_python: python3
+
+    - name: Run portal install.sh
+      ansible.builtin.command: /opt/radius-user-portal/install.sh
+      args:
+        chdir: /opt/radius-user-portal/
+        creates: config.py
+
+    - name: Create private key (RSA, 4096 bits)
+      community.crypto.openssl_privatekey:
+        path: /opt/radius-user-portal/server.key
+        backup: true
+
+    - name: Create certificate signing request (CSR) for self-signed certificate
+      community.crypto.openssl_csr:
+        path: /opt/radius-user-portal/server.csr
+        privatekey_path: /opt/radius-user-portal/server.key
+        common_name: portal
+        subject_alt_name:
+          - "DNS:{{ ansible_hostname }}"
+          - "IP:{{ ansible_default_ipv4.address }}"
+        basic_constraints_critical: true
+        key_usage_critical: true
+        key_usage:
+          - digitalSignature
+          - keyEncipherment
+        extended_key_usage:
+          - serverAuth
+
+    - name: Check if certificate already exists
+      stat:
+        path: /opt/radius-user-portal/server.cer
+      register: stat_result
+
+    - name: Create placeholder self-signed certificate from CSR
+      community.crypto.x509_certificate:
+        path: /opt/radius-user-portal/server.cer
+        csr_path: /opt/radius-user-portal/server.csr
+        privatekey_path: /opt/radius-user-portal/server.key
+        entrust_not_after: +365d
+        provider: selfsigned
+        backup: true
+      when: not stat_result.stat.exists
+
+    - name: Create systemd service
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=radius-user-portal
+          After=network.target
+
+          [Service]
+          User=root
+          # Update /your/path/radius-user-portal to your working directory
+          WorkingDirectory=/opt/radius-user-portal
+          # Update /your/path/radius-user-portal/ to the venv path for the gunicorn executable
+          ExecStart=/opt/radius-user-portal/venv/bin/gunicorn --certfile=server.cer --keyfile=server.key -w 1 --threads 4 -b ':443' 'portal:app'
+          Restart=always
+          # Allows starting on ports < 1024
+          AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/portal.service
+        mode: "0644"
+
+    - name: Start systemd service
+      ansible.builtin.service:
+        name: portal.service
+        daemon_reload: true
+        state: restarted
+        enabled: true

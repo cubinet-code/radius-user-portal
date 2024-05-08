@@ -1,0 +1,15 @@
+---
+services:
+  radiusportal:
+    image: ghcr.io/cubinet-code/radius-user-portal:latest
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./server.cer:/opt/radius-user-portal/server.cer
+      - ./server.key:/opt/radius-user-portal/server.key
+      - ./config.py:/opt/radius-user-portal/config.py
+    environment:
+      - WORKERS=1
+      - THREADS=4
+      - PORT=8443
+    network_mode: bridge

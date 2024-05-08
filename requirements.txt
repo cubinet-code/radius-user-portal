@@ -1,0 +1,6 @@
+Flask~=2.3.2
+Flask-Session~=0.5.0
+Bootstrap-Flask~=2.3.0
+apscheduler~=3.10.4
+pyrad~=2.4
+gunicorn>=22.0.0
