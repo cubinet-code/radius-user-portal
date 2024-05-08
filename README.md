@@ -179,6 +179,8 @@ SESSION_TYPE = "filesystem"
 
 ```
 
+## Kubernetes example manifest
+
 ```yaml
 ---
 apiVersion: apps/v1
