@@ -178,3 +178,51 @@ BOOTSTRAP_SERVE_LOCAL = True
 SESSION_TYPE = "filesystem"
 
 ```
+
+```yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: portal
+      app.kubernetes.io/name: portal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: portal
+        app.kubernetes.io/name: portal
+    spec:
+      containers:
+        - env:
+            - name: PORT # Set desired tcp www port
+              value: "8000"
+            - name: SERVE_HTTP # Causes the server to startup in http mode for reverse proxy operation
+              value: "TRUE"
+          image: ghcr.io/cubinet-code/radius-user-portal:latest
+          imagePullPolicy: Always
+          name: portal
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          volumeMounts:
+            - name: server-config # Mount config file from a configmap
+              mountPath: /opt/radius-user-portal/config.py
+              subPath: config.py
+          resources: {}
+          securityContext: {}
+      securityContext:
+        runAsUser: 1000
+      volumes:
+        - name: server-config # Mount config file from a configmap
+          configMap:
+            name: server-config
+            items:
+              - key: config.py
+                path: config.py
+```
