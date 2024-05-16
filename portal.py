@@ -55,13 +55,10 @@ srv = srv_primary
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    logging.debug(
-        "Serving index request:"
-        f" {request.method} for user:{request.form.get('username')} session:{session}"
-    )
+    logging.debug("Serving index request:" f" {request.method} for user:{request.form.get('username')} session:{session}")
 
-    remote_ip = request.headers.get('X-Forwarded-For', str(request.remote_addr))
-    
+    remote_ip = request.headers.get("X-Forwarded-For", str(request.remote_addr))
+
     # Has the session ended since the last request?
     if request.method == "GET":
         if "end" in session and session["end"] < time.time():
@@ -92,22 +89,17 @@ def index():
                     session["job_id"],
                     "default",
                     "date",
-                    run_date=datetime.datetime.now()
-                    + datetime.timedelta(seconds=session["duration"]),
+                    run_date=datetime.datetime.now() + datetime.timedelta(seconds=session["duration"]),
                 )
             flash("Succesfully extended session", "success")
 
-    return render_template(
-        "index.html.jinja", session=session, ts=session.get("end", 0), remote_ip=remote_ip
-    )
+    return render_template("index.html.jinja", session=session, ts=session.get("end", 0), remote_ip=remote_ip)
 
 
 def logout():
     # Execute background job if it still exists
     if "job_id" in session and (job := background_scheduler.get_job(session["job_id"])):
-        logging.debug(
-            f"Logging out and running logout job {session.get('job_id', 'N/A')}"
-        )
+        logging.debug(f"Logging out and running logout job {session.get('job_id', 'N/A')}")
         job.modify(next_run_time=datetime.datetime.now())
     else:
         logging.debug(f"Logging out but job {session['job_id']} not found")
@@ -119,7 +111,7 @@ def logout():
 def login(username, password):
     global srv
 
-    remote_ip = request.headers.get('X-Forwarded-For', str(request.remote_addr))
+    remote_ip = request.headers.get("X-Forwarded-For", str(request.remote_addr))
     req = srv.CreateAuthPacket()
 
     req["User-Name"] = username
@@ -131,10 +123,7 @@ def login(username, password):
     try:
         reply = srv.SendPacket(req)
     except Exception as error:
-        logging.error(
-            "Radius Server timeout or error, switching to backup server and retrying"
-            " backup"
-        )
+        logging.error("Radius Server timeout or error, switching to backup server and retrying" " backup")
         if srv == srv_primary and srv_backup:
             srv = srv_backup
             login(username, password)
@@ -144,16 +133,10 @@ def login(username, password):
             )
         elif srv == srv_backup:
             srv = srv_primary
-            logging.error(
-                "Backup radius server timeout or error, switched back to primary server"
-                " and not retrying"
-            )
+            logging.error("Backup radius server timeout or error, switched back to primary server" " and not retrying")
             session.pop("_flashes", None)
             flash(
-                (
-                    "All radius servers timed out, switching back to primary server and"
-                    " not retrying"
-                ),
+                ("All radius servers timed out, switching back to primary server and" " not retrying"),
                 "danger",
             )
         return error
@@ -164,14 +147,10 @@ def login(username, password):
         # Honor radius timeout attributes or use default session duration
         if reply.get("Session-Timeout"):
             session["duration"] = reply["Session-Timeout"][0]
-            logging.debug(
-                f"Using radius server attribute Session-Timeout: {session['duration']}"
-            )
+            logging.debug(f"Using radius server attribute Session-Timeout: {session['duration']}")
         elif reply.get("Idle-Timeout"):
             session["duration"] = reply["Idle-Timeout"][0]
-            logging.debug(
-                f"Using radius server attribute Idle-Timeout: {session['duration']}"
-            )
+            logging.debug(f"Using radius server attribute Idle-Timeout: {session['duration']}")
         else:
             # Default session duration
             session["duration"] = RADIUS_SESSION_DURATION
@@ -186,10 +165,7 @@ def login(username, password):
         session["start"] = time.time()
         session["end"] = session["start"] + session["duration"]
 
-        logging.info(
-            f"Radius Session {reply['Class']} started for {username} for"
-            f" {session['duration']} seconds"
-        )
+        logging.info(f"Radius Session {reply['Class']} started for {username} for" f" {session['duration']} seconds")
 
         # Starts and add a job to terminate the session after SESSION_DURATION seconds
         accounting_session(True, session["username"], session["id"], session["ip"])
@@ -198,8 +174,7 @@ def login(username, password):
             "date",
             [False, session["username"], session["id"], session["ip"]],
             name=session_id,
-            run_date=datetime.datetime.now()
-            + datetime.timedelta(seconds=session["duration"]),
+            run_date=datetime.datetime.now() + datetime.timedelta(seconds=session["duration"]),
         )
         session["job_id"] = job.id
         return True
@@ -230,10 +205,7 @@ def accounting_session(start=True, username=None, session_id=None, ip=None):
         req["Acct-Status-Type"] = "Start"
     else:
         req["Acct-Status-Type"] = "Stop"
-        logging.info(
-            f"Asking radius server to terminate session {session_id} for"
-            f" {username} with request {req}"
-        )
+        logging.info(f"Asking radius server to terminate session {session_id} for" f" {username} with request {req}")
 
     try:
         srv.SendPacket(req)
@@ -245,6 +217,4 @@ def accounting_session(start=True, username=None, session_id=None, ip=None):
 
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0", port=8443, ssl_context=("server.cer", "server.key"), debug=False
-    )
+    app.run(host="0.0.0.0", port=8443, ssl_context=("server.cer", "server.key"), debug=False)
