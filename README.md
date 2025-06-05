@@ -3,6 +3,7 @@
 ![Alt text](/tests/screenshot.png?raw=true)
 
 ## Introduction
+
 This flask app is a simple portal for managing radius sessions. It is intended to be used with the a Radius Server like a Cisco ISE.
 It was originaly developed for a Cisco ISE deployment as a custom portal to start Radius sessions for use with a Cisco Secure Firewall Manager (CSFM or FMC). The ISE session then gets replicated via Cisco's PXGrid protocol to the CSFM/FMC. The FMC then uses the session information to allow for user based firewall rules.
 
@@ -11,8 +12,22 @@ It was originaly developed for a Cisco ISE deployment as a custom portal to star
 - After login, the user can see his current session, refresh or disconnect it.
 - The user will either be disconnected after the session duration or can disconnect it manually.
 - The session duration can be controlled by the config.py or by radius attributes sent by the radius server.
-- Radius server redundancy is supported.
+- Radius server redundancy is supported with automatic failover.
 - Session managment is server side, Cookies are encrypted and signed.
+- Circuit breaker pattern implemented for RADIUS server failure handling.
+- UUID fallback for missing RADIUS Class attributes to prevent crashes.
+- Robust error handling to prevent server hanging and infinite recursion issues.
+
+## Dependencies
+
+The application requires the following Python packages (automatically installed via `requirements.txt`):
+
+- **Flask~=3.1.1** - Web framework
+- **Flask-Session~=0.8.0** - Server-side session management
+- **Bootstrap-Flask~=2.5.0** - Bootstrap integration for Flask
+- **APScheduler~=3.11.0** - Background task scheduling for session management
+- **pyrad~=2.4** - RADIUS client library
+- **gunicorn~=23.0.0** - WSGI HTTP Server for production deployment
 
 ## Installation with Ansible
 
@@ -40,6 +55,7 @@ You also still need to edit config.py to [configure](#required-configuration) th
 ## Renew/Reissue SSL certificate
 
 SSL certificates can only be valid for 365 days. You can renew your certificate with the following command:
+
 ```bash
 create_server_csr.sh
 ```
@@ -55,11 +71,13 @@ systemctl restart portal.service
 ## NTP Synchronization
 
 The user portal uses the local clock to calculate the session duration. It is therefore important that the clock is synchronized with NTP. You can check the status with the following command:
+
 ```bash
 timedatectl status
 ```
 
 If the clock is not synchronized, you can enable NTP with the following command:
+
 ```bash
 # Update the NTP server in /etc/systemd/timesyncd.conf
 vi /etc/systemd/timesyncd.conf
@@ -77,6 +95,7 @@ git clone https://github.com/cubinet-code/radius-user-portal.git
 ```
 
 Optional: If you would like to run as a systemd service please update gunicorn.service with your path:
+
 ```bash
 cp portal.example.service portal.service
 vi portal.service
@@ -104,26 +123,30 @@ This starts the app in production mode on a scalable server without debugs:
 ./run.sh
 ```
 
-The service will run by default on port 8443. You can change this in the run.sh or app.py script.
+The service will run by default on port 8443. You can change this in the run.sh or portal.py script.
 
 ## Required Configuration
 
 Copy the example configuration file config.example.py and edit it to your needs.
-```bash 
+
+```bash
 cp config.example.py config.py
 ```
 
 As you should run a service dealing with user passwords SSL protected, also copy the OPENSSL configuration file and edit it to your needs:
-```bash 
+
+```bash
 cp server.example.cnf server.cnf
 ```
 
 Then issue the CSR (certificate signing request) server.csr for signing by your CA:
+
 ```bash
 create_server_csr.sh
 ```
 
 After you receive the certificate file as X.509 PEM encoded file, rename it to server.crt and copy it to the app directory.
+
 ```bash
 cp server.cer.example server.cer
 # then restart the service
@@ -163,6 +186,12 @@ RADIUS_SECRET = "radiuskey"
 # with a Session-Timeout(27) or Idle-Timeout(28) attribute
 DEFAULT_RADIUS_SESSION_DURATION = 60 * 60 * 4  # 4 hours
 
+# Circuit breaker functionality for RADIUS server failures
+# After 5 consecutive RADIUS failures, requests are blocked for 60 seconds
+# These values are hardcoded in portal.py but can be modified if needed:
+# RADIUS_FAILURE_THRESHOLD = 5  # Number of failures before circuit breaker activates
+# RADIUS_BACKOFF_TIME = 60      # Seconds to wait before retrying
+
 #
 # Web Server Parameters
 #
@@ -178,6 +207,293 @@ BOOTSTRAP_SERVE_LOCAL = True
 SESSION_TYPE = "filesystem"
 
 ```
+
+### Environment Variables
+
+The following environment variables can be used to configure the application when running in production:
+
+```bash
+# Server configuration
+PORT=8443                    # Port to bind the server to (default: 8443)
+WORKERS=1                    # Number of gunicorn worker processes (default: 1)
+THREADS=4                    # Number of threads per worker (default: 4)
+SERVE_HTTP=TRUE              # Run in HTTP mode without SSL (for reverse proxy setups)
+
+# Example usage:
+export PORT=8000
+export WORKERS=2
+export THREADS=8
+export SERVE_HTTP=TRUE
+./run.sh
+```
+
+## Troubleshooting
+
+This section covers common issues and their solutions for the RADIUS User Portal.
+
+### Viewing Logs
+
+#### Systemd Service Logs
+
+If the portal is running as a systemd service, you can view logs using:
+
+```bash
+# View real-time logs
+sudo journalctl -u portal.service -f
+
+# View logs from the last hour
+sudo journalctl -u portal.service --since "1 hour ago"
+
+# View all logs for the portal service
+sudo journalctl -u portal.service --no-pager
+
+# View logs with specific priority (error, warning, info, debug)
+sudo journalctl -u portal.service -p err
+```
+
+### Restarting the Server
+
+#### Systemd Service
+
+```bash
+# Restart the portal service
+sudo systemctl restart portal.service
+
+# Check service status
+sudo systemctl status portal.service
+
+# Stop the service
+sudo systemctl stop portal.service
+
+# Start the service
+sudo systemctl start portal.service
+
+# Reload configuration without restarting
+sudo systemctl reload portal.service
+```
+
+#### Manual Process
+
+If running manually:
+
+```bash
+# Find the process ID
+ps aux | grep portal.py
+
+# Kill the process (replace <PID> with actual process ID)
+kill <PID>
+
+# Or force kill if needed
+kill -9 <PID>
+
+# Restart manually
+cd /opt/radius-user-portal
+./run.sh
+```
+
+#### Docker/Container
+
+```bash
+# Restart container
+docker restart <container-name>
+
+# In Kubernetes
+kubectl rollout restart deployment/portal
+```
+
+### Common Issues and Solutions
+
+#### 1. Server Hanging or Becoming Unresponsive
+
+**Symptoms:**
+
+- Browser shows "page taking too long to respond"
+- Application becomes unresponsive
+- High CPU usage
+
+**Solutions:**
+
+```bash
+# Check system resources
+top
+htop
+free -h
+
+# Restart the service
+sudo systemctl restart portal.service
+
+# Check for errors in logs
+sudo journalctl -u portal.service -p err --since "1 hour ago"
+```
+
+#### 2. RADIUS Authentication Failures
+
+**Symptoms:**
+
+- Users cannot log in
+- "Authentication failed" messages
+- RADIUS timeout errors
+- Message "RADIUS servers temporarily unavailable" (circuit breaker activated)
+
+**Solutions:**
+
+```bash
+# Test RADIUS connectivity
+# Install radclient if not available: sudo apt install freeradius-utils
+echo "User-Name=testuser,User-Password=testpass" | radclient -x <RADIUS_SERVER>:1812 auth <RADIUS_SECRET>
+
+# Check RADIUS server configuration in config.py
+grep -E "RADIUS_SERVER|RADIUS_SECRET" /opt/radius-user-portal/config.py
+
+# Check network connectivity
+ping <RADIUS_SERVER>
+telnet <RADIUS_SERVER> 1812
+
+# Check if circuit breaker is activated (check recent logs for failure patterns)
+sudo journalctl -u portal.service --since "30 minutes ago" | grep -i "radius.*timeout\|radius.*error\|temporarily unavailable"
+
+# If circuit breaker is active, wait 60 seconds or restart the service to reset failure count
+sudo systemctl restart portal.service
+```
+
+**Note:** The application includes a circuit breaker mechanism that temporarily blocks RADIUS requests after 5 consecutive failures to prevent overwhelming failed RADIUS servers. This automatically resets after 60 seconds or when the service is restarted.
+
+#### 3. SSL Certificate Issues
+
+**Symptoms:**
+
+- Browser security warnings
+- SSL handshake failures
+- Certificate expired errors
+
+**Solutions:**
+
+```bash
+# Check certificate validity
+openssl x509 -in /opt/radius-user-portal/server.cer -text -noout | grep -E "Not Before|Not After"
+
+# Verify certificate and key match
+openssl x509 -noout -modulus -in /opt/radius-user-portal/server.cer | openssl md5
+openssl rsa -noout -modulus -in /opt/radius-user-portal/server.key | openssl md5
+
+# Regenerate certificate if needed
+cd /opt/radius-user-portal
+./create_server_csr.sh
+```
+
+#### 4. Session Management Issues
+
+**Symptoms:**
+
+- Sessions not persisting
+- Unexpected logouts
+- Session duration problems
+- KeyError exceptions related to missing RADIUS attributes
+
+**Solutions:**
+
+```bash
+# Check session storage permissions
+ls -la /opt/radius-user-portal/flask_session/
+
+# Clear session data
+sudo rm -rf /opt/radius-user-portal/flask_session/*
+
+# Check NTP synchronization
+timedatectl status
+
+# Restart the service
+sudo systemctl restart portal.service
+
+# Check logs for missing RADIUS Class attribute warnings
+sudo journalctl -u portal.service | grep -i "no class attribute\|generated session id"
+```
+
+**Note:** The application now gracefully handles missing RADIUS Class attributes by generating UUID-based session IDs as fallbacks, preventing crashes from incomplete RADIUS responses.
+
+#### 5. High Memory Usage or Memory Leaks
+
+**Symptoms:**
+
+- Gradually increasing memory usage
+- Out of memory errors
+- System slowdown
+
+**Solutions:**
+
+```bash
+# Monitor memory usage
+watch -n 5 'free -h; ps aux | grep portal.py'
+
+# Restart the service regularly (add to cron if needed)
+sudo systemctl restart portal.service
+
+# Check for memory leaks in logs
+sudo journalctl -u portal.service | grep -i "memory\|oom\|killed"
+```
+
+#### 6. Permission Issues
+
+**Symptoms:**
+
+- File access errors
+- Permission denied messages
+- Service fails to start
+
+**Solutions:**
+
+```bash
+# Check file permissions
+ls -la /opt/radius-user-portal/
+
+# Fix ownership if needed
+sudo chown -R www-data:www-data /opt/radius-user-portal/
+
+# Fix permissions
+sudo chmod 755 /opt/radius-user-portal/
+sudo chmod 644 /opt/radius-user-portal/*.py
+sudo chmod 600 /opt/radius-user-portal/config.py
+sudo chmod 600 /opt/radius-user-portal/server.key
+```
+
+### Performance Monitoring
+
+#### Check Application Performance
+
+```bash
+# Monitor process resources
+ps aux | grep portal.py
+
+# Check network connections
+netstat -tulpn | grep :8443
+
+# Monitor disk space
+df -h
+
+# Check system load
+uptime
+```
+
+#### Enable Debug Mode (Development Only)
+
+For debugging purposes, you can enable debug mode by modifying the configuration:
+
+```python
+# In config.py, add:
+DEBUG = True
+```
+
+**Warning:** Never enable debug mode in production as it can expose sensitive information.
+
+### Getting Help
+
+1. **Check the logs first** - Most issues can be diagnosed from the log output
+2. **Verify configuration** - Ensure all settings in `config.py` are correct
+3. **Test connectivity** - Verify network access to RADIUS servers
+4. **Check system resources** - Ensure adequate CPU, memory, and disk space
+5. **Review recent changes** - Consider any recent configuration or system changes
+
+If you continue to experience issues after following these troubleshooting steps, please check the project's GitHub repository for known issues and solutions.
 
 ## Kubernetes example manifest
 
