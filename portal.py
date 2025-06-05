@@ -3,6 +3,7 @@ import datetime
 import time
 import secrets
 import socket
+import uuid
 from flask import Flask, render_template, request, session, flash
 from flask_bootstrap import Bootstrap5
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -22,6 +23,11 @@ app.secret_key = app.config.get("SECRET_KEY", secrets.token_hex(16))
 PORTAL_IP = app.config.get("PORTAL_IP", str(socket.gethostbyname(socket.gethostname())))
 # Max Session duration in seconds - default 1 hour
 RADIUS_SESSION_DURATION = app.config.get("DEFAULT_RADIUS_SESSION_DURATION", 3600)
+
+# Circuit breaker variables for RADIUS failures
+RADIUS_FAILURE_COUNT = 0
+RADIUS_FAILURE_THRESHOLD = 5
+RADIUS_BACKOFF_TIME = 60
 
 # Initialize Bootstrap5 integration
 bootstrap = Bootstrap5(app)
@@ -70,7 +76,7 @@ def index():
                 flash("Please provide username and password", "warning")
             # Process login request
             else:
-                result = login(request.form["username"], request.form["password"])
+                result = login(request.form["username"], request.form["password"], remote_ip)
                 if result is True:
                     flash("Succesfully logged in", "success")
                 else:
@@ -84,34 +90,44 @@ def index():
             session["start"] = time.time()
             session["end"] = session["start"] + session["duration"]
             # Reschedule background job if it exists
-            if "job_id" in session and background_scheduler.get_job(session["job_id"]):
-                background_scheduler.reschedule_job(
-                    session["job_id"],
-                    "default",
-                    "date",
-                    run_date=datetime.datetime.now() + datetime.timedelta(seconds=session["duration"]),
-                )
-            flash("Succesfully extended session", "success")
+            try:
+                if "job_id" in session and background_scheduler.get_job(session["job_id"]):
+                    background_scheduler.reschedule_job(
+                        session["job_id"],
+                        "default",
+                        "date",
+                        run_date=datetime.datetime.now() + datetime.timedelta(seconds=session["duration"]),
+                    )
+                flash("Succesfully extended session", "success")
+            except Exception as e:
+                logging.error(f"Failed to reschedule job: {e}")
+                flash("Session extended but job rescheduling failed", "warning")
 
     return render_template("index.html.jinja", session=session, ts=session.get("end", 0), remote_ip=remote_ip)
 
 
 def logout():
     # Execute background job if it still exists
-    if "job_id" in session and (job := background_scheduler.get_job(session["job_id"])):
-        logging.debug(f"Logging out and running logout job {session.get('job_id', 'N/A')}")
-        job.modify(next_run_time=datetime.datetime.now())
-    else:
-        logging.debug(f"Logging out but job {session['job_id']} not found")
+    try:
+        if "job_id" in session and (job := background_scheduler.get_job(session["job_id"])):
+            logging.debug(f"Logging out and running logout job {session.get('job_id', 'N/A')}")
+            job.modify(next_run_time=datetime.datetime.now())
+        else:
+            logging.debug(f"Logging out but job {session.get('job_id', 'N/A')} not found")
+    except Exception as e:
+        logging.error(f"Error during logout job handling: {e}")
 
     session.clear()
     return True
 
 
-def login(username, password):
-    global srv
+def login(username, password, remote_ip):
+    global srv, RADIUS_FAILURE_COUNT
 
-    remote_ip = request.headers.get("X-Forwarded-For", str(request.remote_addr))
+    # Circuit breaker check
+    if RADIUS_FAILURE_COUNT >= RADIUS_FAILURE_THRESHOLD:
+        return "RADIUS servers temporarily unavailable. Please try again later."
+
     req = srv.CreateAuthPacket()
 
     req["User-Name"] = username
@@ -122,24 +138,26 @@ def login(username, password):
 
     try:
         reply = srv.SendPacket(req)
+        RADIUS_FAILURE_COUNT = 0  # Reset on success
     except Exception as error:
-        logging.error("Radius Server timeout or error, switching to backup server and retrying" " backup")
+        RADIUS_FAILURE_COUNT += 1
+        logging.error("Radius Server timeout or error, switching to backup server and retrying backup")
         if srv == srv_primary and srv_backup:
             srv = srv_backup
-            login(username, password)
+            result = login(username, password, remote_ip)  # Store result
             flash(
                 "Primary radius server timed out, switched to backup radius server",
                 "warning",
             )
+            return result  # Return the result
         elif srv == srv_backup:
             srv = srv_primary
-            logging.error("Backup radius server timeout or error, switched back to primary server" " and not retrying")
-            session.pop("_flashes", None)
+            logging.error("Backup radius server timeout or error, switched back to primary server and not retrying")
             flash(
-                ("All radius servers timed out, switching back to primary server and" " not retrying"),
+                ("All radius servers timed out, switching back to primary server and not retrying"),
                 "danger",
             )
-        return error
+        return str(error)
 
     logging.debug(f"Auth Reply: {reply}")
 
@@ -156,16 +174,22 @@ def login(username, password):
             session["duration"] = RADIUS_SESSION_DURATION
             logging.debug(f"Using configured session timeout: {session['duration']}")
 
-        session_id = reply["Class"][0].decode("utf-8").split(":")[2]
+        # Handle missing Class attribute gracefully
+        if "Class" in reply and reply["Class"]:
+            session_id = reply["Class"][0].decode("utf-8").split(":")[2]
+        else:
+            # Generate a fallback session ID
+            session_id = str(uuid.uuid4())
+            logging.warning(f"No Class attribute in RADIUS reply, using generated session ID: {session_id}")
 
         session["username"] = username
-        session["class"] = reply["Class"]
+        session["class"] = reply.get("Class", [])
         session["id"] = session_id
         session["ip"] = remote_ip
         session["start"] = time.time()
         session["end"] = session["start"] + session["duration"]
 
-        logging.info(f"Radius Session {reply['Class']} started for {username} for" f" {session['duration']} seconds")
+        logging.info(f"Radius Session {reply.get('Class', session_id)} started for {username} for {session['duration']} seconds")
 
         # Starts and add a job to terminate the session after SESSION_DURATION seconds
         accounting_session(True, session["username"], session["id"], session["ip"])
