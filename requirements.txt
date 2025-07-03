@@ -7,3 +7,4 @@ gunicorn~=23.0.0
 Flask-WTF~=1.2.1
 WTForms~=3.2.1
 cachelib~=0.13.0
+flask-talisman~=1.1.0

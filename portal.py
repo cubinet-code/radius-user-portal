@@ -14,6 +14,7 @@ from flask_wtf.csrf import validate_csrf
 from wtforms import StringField, PasswordField, SubmitField, IntegerField
 from wtforms.validators import DataRequired, Length, Regexp
 from cachelib import FileSystemCache
+from flask_talisman import Talisman
 from pyrad.client import Client
 from pyrad.dictionary import Dictionary
 import pyrad.packet
@@ -39,8 +40,8 @@ RADIUS_BACKOFF_TIME = 60
 # Input validation constants
 MAX_USERNAME_LENGTH = 63  # RADIUS standard
 MAX_PASSWORD_LENGTH = 128  # RADIUS standard
-# RADIUS-compatible character pattern (alphanumeric + common symbols)
-RADIUS_CHAR_PATTERN = re.compile(r'^[a-zA-Z0-9@._-]+$')
+# RADIUS-compatible character pattern (configurable via config.py)
+RADIUS_CHAR_PATTERN = re.compile(app.config.get('RADIUS_CHAR_PATTERN', r'^[a-zA-Z0-9@._-]+$'))
 
 # Configure CacheLib session backend (replaces deprecated filesystem backend)
 app.config['SESSION_CACHELIB'] = FileSystemCache(cache_dir='flask_session', threshold=500)
@@ -51,6 +52,25 @@ bootstrap = Bootstrap5(app)
 csrf = CSRFProtect(app)
 # Initialize the Flask Session
 Session(app)
+# Initialize Flask-Talisman for security headers including CSP
+csp = {
+    'default-src': "'self'",
+    'script-src': "'self'",
+    'style-src': "'self' 'unsafe-inline'",  # Bootstrap requires inline styles
+    'img-src': "'self' data:",
+    'font-src': "'self'",
+    'connect-src': "'self'",
+    'frame-ancestors': "'none'"
+}
+talisman = Talisman(
+    app,
+    content_security_policy=csp,
+    content_security_policy_nonce_in=['script-src'],
+    strict_transport_security=True,
+    strict_transport_security_max_age=31536000,
+    strict_transport_security_include_subdomains=True,
+    force_https=False  # Allow HTTP for development
+)
 # Initialize the Background Session Scheduler
 background_scheduler = BackgroundScheduler()
 background_scheduler.start()
@@ -77,32 +97,7 @@ if app.config.get("RADIUS_SERVER_BACKUP"):
 srv = srv_primary
 
 
-@app.after_request
-def add_security_headers(response):
-    """Add security headers to all responses."""
-    # Content Security Policy
-    response.headers['Content-Security-Policy'] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
-        "font-src 'self'; "
-        "connect-src 'self'; "
-        "frame-ancestors 'none'"
-    )
-    
-    # Security headers
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
-    
-    # HSTS header (only if serving HTTPS)
-    if request.is_secure:
-        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    
-    return response
+# Security headers are now handled by Flask-Talisman
 
 
 class LoginForm(FlaskForm):
@@ -110,7 +105,7 @@ class LoginForm(FlaskForm):
     username = StringField('Username', validators=[
         DataRequired(),
         Length(max=MAX_USERNAME_LENGTH, message=f'Username too long (max {MAX_USERNAME_LENGTH} characters)'),
-        Regexp(RADIUS_CHAR_PATTERN, message='Username contains invalid characters (only alphanumeric, @, ., _, - allowed)')
+        Regexp(RADIUS_CHAR_PATTERN, message='Username contains invalid characters')
     ])
     password = PasswordField('Password', validators=[
         DataRequired(),
@@ -138,7 +133,7 @@ def validate_input(username, password):
     if len(username) > MAX_USERNAME_LENGTH:
         errors.append(f"Username too long (max {MAX_USERNAME_LENGTH} characters)")
     if not RADIUS_CHAR_PATTERN.match(username):
-        errors.append("Username contains invalid characters (only alphanumeric, @, ., _, - allowed)")
+        errors.append("Username contains invalid characters")
     
     # Check password length
     if len(password) > MAX_PASSWORD_LENGTH:

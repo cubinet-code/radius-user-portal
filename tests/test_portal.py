@@ -105,3 +105,60 @@ def test_portal_session(client):
         )
 
         assert session.get("username") is None
+
+
+def test_csp_nonce_in_response(client):
+    """Test that CSP nonce is present in script tags"""
+    response = client.get("/")
+    assert response.status_code == 200
+    
+    # Check that the inline script has a nonce attribute
+    assert b'nonce="' in response.data
+    assert b'<script type="text/javascript" nonce="' in response.data
+    
+    # Extract nonce from HTML
+    nonce_pattern = rb'<script type="text/javascript" nonce="([^"]+)">'
+    match = re.search(nonce_pattern, response.data)
+    assert match is not None
+    nonce = match.group(1).decode('utf-8')
+    
+    # Nonce should be non-empty and of reasonable length
+    assert len(nonce) > 10
+
+
+def test_security_headers_present(client):
+    """Test that Flask-Talisman security headers are present"""
+    response = client.get("/")
+    assert response.status_code == 200
+    
+    # Check CSP header is present and doesn't contain unsafe-inline for scripts
+    csp_header = response.headers.get('Content-Security-Policy')
+    assert csp_header is not None
+    assert 'script-src' in csp_header
+    assert 'nonce-' in csp_header
+    # Style-src still needs unsafe-inline for Bootstrap, but script-src should use nonce
+    assert "script-src 'self' 'nonce-" in csp_header
+    
+    # Check other security headers (Flask-Talisman defaults)
+    assert response.headers.get('X-Frame-Options') == 'SAMEORIGIN'
+    assert response.headers.get('X-Content-Type-Options') == 'nosniff'
+    
+    # Ensure deprecated X-XSS-Protection header is not present
+    assert 'X-XSS-Protection' not in response.headers
+
+
+def test_configurable_pattern_validation():
+    """Test that configurable password validation pattern works in validation function"""
+    import portal
+    
+    # Test characters that should be allowed with expanded pattern
+    errors = portal.validate_input("test@user.com", "testpass")
+    assert "Username contains invalid characters" not in ' '.join(errors)
+    
+    # Test expanded character set (should be allowed)
+    errors = portal.validate_input("test+user#1", "testpass") 
+    assert "Username contains invalid characters" not in ' '.join(errors)
+    
+    # Test characters that should still be rejected (like spaces)
+    errors = portal.validate_input("test user", "testpass")
+    assert "Username contains invalid characters" in ' '.join(errors)

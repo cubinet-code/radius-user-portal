@@ -247,7 +247,7 @@ export FORWARDED_ALLOW_IPS="127.0.0.1,10.0.0.1"  # Multiple IPs separated by com
 
 **⚠️ IMPORTANT SECURITY CONSIDERATION**
 
-The application uses the `X-Forwarded-For` header to determine client IP addresses, which are used for RADIUS authentication and potentially firewall rules. By default, Gunicorn accepts this header from any source, which can be exploited for IP spoofing attacks.
+The application uses the `X-Forwarded-For` header to determine client IP addresses, which are used for RADIUS authentication and potentially firewall rules. By default, Gunicorn only accepts this header from localhost (127.0.0.1,::1) and strips it from other sources for security, but this can be configured.
 
 **Configuration Options:**
 
@@ -281,7 +281,8 @@ The application includes comprehensive security measures:
 **Input Validation:**
 - Username length limited to 63 characters (RADIUS standard)
 - Password length limited to 128 characters (RADIUS standard)
-- Character validation: only alphanumeric, @, ., _, - allowed in usernames
+- Character validation: configurable pattern via `RADIUS_CHAR_PATTERN` in config.py
+- Default pattern includes: alphanumeric, ! # $ % & ' ( ) * + , - . / : ; = ? @ _ { }
 - Returns HTTP 400 Bad Request for invalid inputs instead of 500 errors
 
 **CSRF Protection:**
@@ -289,14 +290,13 @@ The application includes comprehensive security measures:
 - Prevents Cross-Site Request Forgery attacks
 - Automatically enabled in production, disabled in test environment
 
-**Security Headers:**
-- Content Security Policy (CSP) to prevent XSS attacks
+**Security Headers (via Flask-Talisman):**
+- Content Security Policy (CSP) with nonce-based inline script protection
 - X-Frame-Options: DENY to prevent clickjacking
 - X-Content-Type-Options: nosniff to prevent MIME sniffing
-- X-XSS-Protection: 1; mode=block for additional XSS protection
 - Referrer-Policy: strict-origin-when-cross-origin
-- Permissions-Policy to restrict dangerous features
 - HSTS header for HTTPS connections (max-age=31536000; includeSubDomains)
+- Removed deprecated X-XSS-Protection header (CSP provides better protection)
 
 **Session Security:**
 - Server-side sessions using CacheLib filesystem backend

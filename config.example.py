@@ -19,6 +19,11 @@ RADIUS_SECRET = "radiuskey"
 # with a Session-Timeout(27) or Idle-Timeout(28) attribute
 DEFAULT_RADIUS_SESSION_DURATION = 60 * 60 * 4  # 4 hours
 
+# Username character validation pattern for RADIUS compatibility
+# Default includes alphanumeric and common symbols safe for Cisco systems
+# You can customize this pattern based on your RADIUS server requirements
+RADIUS_CHAR_PATTERN = r'^[a-zA-Z0-9!#$%&\'()*+,./:;=?@_{-]+$'
+
 #
 # Web Server Parameters
 #
