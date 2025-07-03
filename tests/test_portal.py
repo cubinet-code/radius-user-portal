@@ -2,6 +2,7 @@ import pytest
 from portal import app
 from flask import session
 import time
+import re
 
 
 @pytest.fixture()
@@ -29,7 +30,7 @@ def test_login_empty_password(client):
             "login": "",
         },
     )
-    assert b"Please provide username and password" in response.data
+    assert b"password: This field is required" in response.data
 
 
 def test_login_wrong_password(client):
@@ -53,11 +54,12 @@ def test_login_success(client):
             "login": "",
         },
     )
-    assert b"Succesfully logged in" in response.data
+    assert b"Successfully logged in" in response.data
 
 
 def test_portal_session(client):
     with client:
+        # Login
         client.post(
             "/",
             data={
@@ -80,10 +82,12 @@ def test_portal_session(client):
         # Allow for more tolerance due to processing delays, test duration should be between 9-15 seconds
         assert 9 <= remaining_time <= 15
 
+        # Extend session
         client.post(
             "/",
             data={
-                "refresh": "",
+                "extend": "",
+                "duration": str(session["duration"]),
             },
         )
 
@@ -92,6 +96,7 @@ def test_portal_session(client):
         assert session["id"] != ""
         assert session["end"] == session["start"] + session["duration"]
 
+        # Logout
         client.post(
             "/",
             data={

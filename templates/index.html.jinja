@@ -42,30 +42,54 @@
         {% endwith %}
 
         
+        {% if not session.username %}
+        <!-- Login Form -->
         <form action="/" method="post">
+            {{ login_form.hidden_tag() }}
+            
+            <div class="form-floating mb-3">
+                {{ login_form.username(class="form-control", id="username") }}
+                <label for="username">Username:</label>
+                {% for error in login_form.username.errors %}
+                    <div class="text-danger">{{ error }}</div>
+                {% endfor %}
+            </div>
 
             <div class="form-floating mb-3">
-                <input class="form-control" type="text" id="username" name="username" value="{{ session.username }}"
-                    {{ 'disabled readonly' if session.username}}>
-                <label for="username">Username:</label>
-            </div>
-
-            <div class="form-floating mb-3 {{ "visually-hidden" if session.username}}">
-                <input class="form-control" type="password" id="password" name="password" {{ 'disabled readonly' if session.username}}>
+                {{ login_form.password(class="form-control", id="password") }}
                 <label for="password">Password:</label>
-            </div>
-            
-            <div class="form-floating mb-3 {{ '' if session.username else 'visually-hidden'}}">
-                <input class="form-control" type="text" id="session" name="session" {{ "disabled readonly" if session.username}}>
-                <label for="session">Session End:</label>
+                {% for error in login_form.password.errors %}
+                    <div class="text-danger">{{ error }}</div>
+                {% endfor %}
             </div>
 
-            <button class="btn btn-{{ 'danger' if session.username else 'primary'}}" type="submit" name="{{ 'logout' if session.username else 'login' }}">{{ 'Logout from' if session.username else 'Login from'}} {{remote_ip}}</button>
-            {% if session.username %}
-            <button class="btn btn-success" type="submit" name="extend">Extend Session</button>
-            {% endif %}
-
+            <button class="btn btn-primary" type="submit" name="login">Login from {{remote_ip}}</button>
         </form>
+        {% else %}
+        <!-- Logged in user display -->
+        <div class="form-floating mb-3">
+            <input class="form-control" type="text" id="username" name="username" value="{{ session.username }}" disabled readonly>
+            <label for="username">Username:</label>
+        </div>
+        
+        <div class="form-floating mb-3">
+            <input class="form-control" type="text" id="session" name="session" disabled readonly>
+            <label for="session">Session End:</label>
+        </div>
+
+        <!-- Logout Form -->
+        <form action="/" method="post" style="display: inline;">
+            {{ logout_form.hidden_tag() }}
+            <button class="btn btn-danger" type="submit" name="logout">Logout from {{remote_ip}}</button>
+        </form>
+        
+        <!-- Extend Session Form -->
+        <form action="/" method="post" style="display: inline;">
+            {{ extend_form.hidden_tag() }}
+            {{ extend_form.duration(value=session.duration, type="hidden") }}
+            <button class="btn btn-success" type="submit" name="extend">Extend Session</button>
+        </form>
+        {% endif %}
 
     </div>
 

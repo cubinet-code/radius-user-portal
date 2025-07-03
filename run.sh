@@ -12,8 +12,8 @@ if [[ -z "${SERVE_HTTP}" ]]; then
     echo "Please create CSR and CERT first!"
     exit 1
   fi
-  gunicorn --certfile=server.cer --keyfile=server.key -w ${WORKERS:-1} --threads ${THREADS:-4} -b :${PORT:-8443} 'portal:app' 
+  gunicorn --certfile=server.cer --keyfile=server.key -w ${WORKERS:-1} --threads ${THREADS:-4} -b :${PORT:-8443} --forwarded-allow-ips="${FORWARDED_ALLOW_IPS:-127.0.0.1}" 'portal:app' 
 else
-  gunicorn -w ${WORKERS:-1} --threads ${THREADS:-4} -b :${PORT:-8443} 'portal:app' 
+  gunicorn -w ${WORKERS:-1} --threads ${THREADS:-4} -b :${PORT:-8443} --forwarded-allow-ips="${FORWARDED_ALLOW_IPS:-127.0.0.1}" 'portal:app' 
 fi
 

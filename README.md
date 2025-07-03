@@ -18,16 +18,27 @@ It was originaly developed for a Cisco ISE deployment as a custom portal to star
 - UUID fallback for missing RADIUS Class attributes to prevent crashes.
 - Robust error handling to prevent server hanging and infinite recursion issues.
 
+## Security Features
+
+- **Input Validation**: Username and password validation according to RADIUS standards (length limits and character restrictions)
+- **CSRF Protection**: Cross-Site Request Forgery protection on all forms using Flask-WTF
+- **Security Headers**: Comprehensive HTTP security headers including CSP, X-Frame-Options, HSTS, and more
+- **IP Validation**: Configurable X-Forwarded-For header validation to prevent IP spoofing attacks
+- **Rate Limiting**: Circuit breaker pattern for RADIUS server failures to prevent DoS attacks
+
 ## Dependencies
 
 The application requires the following Python packages (automatically installed via `requirements.txt`):
 
 - **Flask~=3.1.1** - Web framework
-- **Flask-Session~=0.8.0** - Server-side session management
+- **Flask-Session~=0.8.0** - Server-side session management using CacheLib backend
 - **Bootstrap-Flask~=2.5.0** - Bootstrap integration for Flask
 - **APScheduler~=3.11.0** - Background task scheduling for session management
 - **pyrad~=2.4** - RADIUS client library
 - **gunicorn~=23.0.0** - WSGI HTTP Server for production deployment
+- **Flask-WTF~=1.2.1** - CSRF protection and form handling
+- **WTForms~=3.2.1** - Form validation and rendering
+- **cachelib~=0.13.0** - Caching library backend for session storage
 
 ## Installation with Ansible
 
@@ -203,8 +214,9 @@ SECRET_KEY = "secretkey"
 
 # Use Boostrap assets from local server
 BOOTSTRAP_SERVE_LOCAL = True
-# Where to store the session data
-SESSION_TYPE = "filesystem"
+# Where to store the session data - using CacheLib backend (recommended)
+SESSION_TYPE = "cachelib"
+# Session storage is configured automatically in portal.py using FileSystemCache
 
 ```
 
@@ -218,14 +230,79 @@ PORT=8443                    # Port to bind the server to (default: 8443)
 WORKERS=1                    # Number of gunicorn worker processes (default: 1)
 THREADS=4                    # Number of threads per worker (default: 4)
 SERVE_HTTP=TRUE              # Run in HTTP mode without SSL (for reverse proxy setups)
+FORWARDED_ALLOW_IPS=127.0.0.1 # IPs allowed to set X-Forwarded-For header (default: 127.0.0.1)
 
 # Example usage:
 export PORT=8000
 export WORKERS=2
 export THREADS=8
 export SERVE_HTTP=TRUE
+export FORWARDED_ALLOW_IPS="127.0.0.1,10.0.0.1"  # Multiple IPs separated by commas
 ./run.sh
 ```
+
+### Security Configuration
+
+#### X-Forwarded-For Header Security
+
+**⚠️ IMPORTANT SECURITY CONSIDERATION**
+
+The application uses the `X-Forwarded-For` header to determine client IP addresses, which are used for RADIUS authentication and potentially firewall rules. By default, Gunicorn accepts this header from any source, which can be exploited for IP spoofing attacks.
+
+**Configuration Options:**
+
+1. **Direct Internet Access**: If the application runs directly on the internet without a proxy:
+   ```bash
+   # Don't set FORWARDED_ALLOW_IPS or set it to empty
+   export FORWARDED_ALLOW_IPS=""
+   ```
+
+2. **Behind a Reverse Proxy**: If using a reverse proxy (nginx, HAProxy, etc.):
+   ```bash
+   # Set to your reverse proxy's IP address
+   export FORWARDED_ALLOW_IPS="127.0.0.1,10.0.0.1"
+   ```
+
+3. **Kubernetes/Container Environments**: Set to the pod network or load balancer IP:
+   ```bash
+   # Example for Kubernetes
+   export FORWARDED_ALLOW_IPS="10.244.0.0/16"
+   ```
+
+**Security Impact:**
+- Incorrect configuration allows attackers to spoof source IPs
+- This could bypass IP-based firewall rules in your network infrastructure
+- Always restrict `FORWARDED_ALLOW_IPS` to trusted proxy servers only
+
+#### Input Validation and Security Features
+
+The application includes comprehensive security measures:
+
+**Input Validation:**
+- Username length limited to 63 characters (RADIUS standard)
+- Password length limited to 128 characters (RADIUS standard)
+- Character validation: only alphanumeric, @, ., _, - allowed in usernames
+- Returns HTTP 400 Bad Request for invalid inputs instead of 500 errors
+
+**CSRF Protection:**
+- All forms protected with CSRF tokens using Flask-WTF
+- Prevents Cross-Site Request Forgery attacks
+- Automatically enabled in production, disabled in test environment
+
+**Security Headers:**
+- Content Security Policy (CSP) to prevent XSS attacks
+- X-Frame-Options: DENY to prevent clickjacking
+- X-Content-Type-Options: nosniff to prevent MIME sniffing
+- X-XSS-Protection: 1; mode=block for additional XSS protection
+- Referrer-Policy: strict-origin-when-cross-origin
+- Permissions-Policy to restrict dangerous features
+- HSTS header for HTTPS connections (max-age=31536000; includeSubDomains)
+
+**Session Security:**
+- Server-side sessions using CacheLib filesystem backend
+- Sessions stored in `flask_session` directory with 500 item threshold
+- Signed and encrypted session cookies
+- Configurable session timeouts via RADIUS attributes
 
 ## Troubleshooting
 
@@ -456,6 +533,37 @@ sudo chmod 600 /opt/radius-user-portal/config.py
 sudo chmod 600 /opt/radius-user-portal/server.key
 ```
 
+#### 7. Input Validation and Security Errors
+
+**Symptoms:**
+
+- HTTP 400 Bad Request errors during login
+- "Username contains invalid characters" messages
+- "Username/Password too long" messages
+- CSRF token missing errors
+
+**Solutions:**
+
+```bash
+# Check if inputs meet validation requirements
+# Username: max 63 chars, only alphanumeric + @._-
+# Password: max 128 chars
+
+# Check logs for validation errors
+sudo journalctl -u portal.service | grep -i "validation\|csrf\|bad request"
+
+# For CSRF errors, ensure:
+# - Forms are properly rendered with CSRF tokens
+# - Session cookies are being set correctly
+# - No JavaScript modifying forms without CSRF tokens
+
+# Check session storage permissions
+ls -la /opt/radius-user-portal/flask_session/
+sudo chown -R www-data:www-data /opt/radius-user-portal/flask_session/
+```
+
+**Note:** The application includes comprehensive input validation and CSRF protection. Validation errors return HTTP 400 instead of 500 for better security and user experience.
+
 ### Performance Monitoring
 
 #### Check Application Performance
@@ -521,6 +629,8 @@ spec:
               value: "8000"
             - name: SERVE_HTTP # Causes the server to startup in http mode for reverse proxy operation
               value: "TRUE"
+            - name: FORWARDED_ALLOW_IPS # Restrict X-Forwarded-For header to trusted sources
+              value: "10.244.0.0/16"  # Example: Kubernetes pod network CIDR
           image: ghcr.io/cubinet-code/radius-user-portal:latest
           imagePullPolicy: Always
           name: portal

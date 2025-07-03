@@ -4,3 +4,6 @@ Bootstrap-Flask~=2.5.0
 apscheduler~=3.11.0
 pyrad~=2.4
 gunicorn~=23.0.0
+Flask-WTF~=1.2.1
+WTForms~=3.2.1
+cachelib~=0.13.0
