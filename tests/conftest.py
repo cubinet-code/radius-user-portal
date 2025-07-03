@@ -19,3 +19,8 @@ def setup_test_config(monkeypatch):
     portal.app.config["DEFAULT_RADIUS_SESSION_DURATION"] = 15
     # Disable CSRF for testing
     portal.app.config["WTF_CSRF_ENABLED"] = False
+    # Set expanded character pattern for testing
+    portal.app.config["RADIUS_CHAR_PATTERN"] = r'^[a-zA-Z0-9!#$%&\'()*+,./:;=?@_{-]+$'
+    # Re-compile the regex pattern with the new config
+    import re
+    portal.RADIUS_CHAR_PATTERN = re.compile(portal.app.config["RADIUS_CHAR_PATTERN"])

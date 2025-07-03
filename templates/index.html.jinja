@@ -97,7 +97,7 @@
 
     {% block scripts %}
         {{ bootstrap.load_js() }}
-        <script type="text/javascript">var ts = {{ (ts * 1000)|int }};</script>
+        <script type="text/javascript" nonce="{{ csp_nonce() }}">var ts = {{ (ts * 1000)|int }};</script>
         <script type="text/javascript" src="{{ url_for('static',filename='app.js') }}"></script>
     {% endblock %}
 </main>
