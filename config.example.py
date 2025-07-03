@@ -30,5 +30,7 @@ SECRET_KEY = "secretkey"
 
 # Use Boostrap assets from local server
 BOOTSTRAP_SERVE_LOCAL = True
-# Where to store the session data
-SESSION_TYPE = "filesystem"
+# Where to store the session data - using CacheLib backend
+SESSION_TYPE = "cachelib"
+# CacheLib configuration for filesystem sessions
+# Note: This will be set programmatically in portal.py to use FileSystemCache
