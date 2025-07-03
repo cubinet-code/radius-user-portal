@@ -17,3 +17,5 @@ def setup_test_config(monkeypatch):
     # Override the configuration for tests
     portal.RADIUS_SESSION_DURATION = 15
     portal.app.config["DEFAULT_RADIUS_SESSION_DURATION"] = 15
+    # Disable CSRF for testing
+    portal.app.config["WTF_CSRF_ENABLED"] = False
