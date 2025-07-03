@@ -1,4 +1,3 @@
-.vscode
 config.py
 server.cnf
 flask_session
@@ -6,8 +5,4 @@ server.key
 server.cer
 server.csr
 env
-__pycache__
-.python-version
-run443.sh
 venv
-

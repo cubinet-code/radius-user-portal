@@ -39,6 +39,7 @@ The application requires the following Python packages (automatically installed 
 - **Flask-WTF~=1.2.1** - CSRF protection and form handling
 - **WTForms~=3.2.1** - Form validation and rendering
 - **cachelib~=0.13.0** - Caching library backend for session storage
+- **flask-talisman~=1.1.0** - Security headers and CSP management
 
 ## Installation with Ansible
 
@@ -196,6 +197,11 @@ RADIUS_SECRET = "radiuskey"
 # The default session duration below can be overriden by your radius server
 # with a Session-Timeout(27) or Idle-Timeout(28) attribute
 DEFAULT_RADIUS_SESSION_DURATION = 60 * 60 * 4  # 4 hours
+
+# Username character validation pattern for RADIUS compatibility
+# Default includes alphanumeric and common symbols safe for Cisco systems
+# You can customize this pattern based on your RADIUS server requirements
+RADIUS_CHAR_PATTERN = r'^[a-zA-Z0-9!#$%&\'()*+,./:;=?@_{-]+$'
 
 # Circuit breaker functionality for RADIUS server failures
 # After 5 consecutive RADIUS failures, requests are blocked for 60 seconds
